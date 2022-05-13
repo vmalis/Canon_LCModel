@@ -10,11 +10,18 @@ clc
 
 %% read all exiting binary sraw data  -  data files
 
+f = waitbar(0,'1','Name','Loading',...
+    'CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
+
+
 srawbin_files = dir('*.sraw.bin');
 n=size(srawbin_files,1);
 data = struct();
 
     for i=1:n
+        
+        waitbar(i/n,f,sprintf('Reading data set %d out of %d',i,n))
+
 
         filename = srawbin_files(i).name(1:end-9);
         data(i).name = filename;
@@ -34,6 +41,7 @@ data = struct();
         % xml ---------------------------------------
         xmlfilename     =   [filename,'.sraw.xml'];
 
+
         if isfile(xmlfilename)
             
             data(i).xml =   xml2struct(xmlfilename);
@@ -52,33 +60,105 @@ data = struct();
             
             % needed for LCModel
             data(i).ch      =     ch;
-            data(i).vol     =     fov_W/w*fov_H/h*fov_D;    % volume in mL for single voxel
+            data(i).vol     =     fov_W/sqrt(h)*fov_H/sqrt(h);    % volume in mL for single voxel
 
             % permute raw
-            data(i).sraw    =   squeeze(reshape(sraw,[2,w,h,dp,ch,im,sl,sg]));
-            
-            % permute sref and pad with zeros if different size than raw
+            temp            =   squeeze(reshape(sraw,[2,w,sqrt(h),sqrt(h),dp,ch,im,sl,sg]));
+            real            =   temp(1,:,:,:,:,:,:,:,:);
+            img             =   temp(2,:,:,:,:,:,:,:,:);
 
+            temp            =   complex(real,img);
+            temp(:,w/2+1:end,:,:,:,:,:,:,:)=[];
+            temp=squeeze(temp);
+
+           
+
+            if ch==1 && h==1
+                data(i).sraw    =   temp';
+
+            elseif ch==1
+                data(i).sraw    =   temp;
             
+            else 
+    
+               RAW(i).sraw=temp;
+
+               SMAP=squeeze(adaptive_est_sens(temp));
+               img=squeeze(temp);
+               coil_dim=max(size(size(SMAP)));
+               data(i).sraw = sum(img.*conj(SMAP),coil_dim)./sum(SMAP.*conj(SMAP),coil_dim);
+
+               clearvars SMAP
+
+            end
+            
+            clearvars real img temp 
+           
+
             if ~isempty(srefraw)
 
                 %multi-voxel
                 if h>1
+
+                    % pad reference (2 times undersampled x,y)
+                    %srefraw=kron(srefraw,[1,0,0,0]');
+
                     dx = sqrt(h);
                     dy = sqrt(h);
                      
                     temp = squeeze(reshape(srefraw,[2,w,dx/2,dy/2,dp,ch,im,sl,sg]));
 
-                    temp = cat(3, zeros(2,w,dx/4,dy/2,ch,im,sl,sg),temp);
-                    temp = cat(3, temp, zeros(2,w,dx/4,dy/2,ch,im,sl,sg));
+                    real=temp(1,:,:,:,:,:,:,:,:);
+                    img=temp(2,:,:,:,:,:,:,:,:);
 
-                    temp = cat(4, zeros(2,w,dx,dy/4,ch,im,sl,sg),temp);
-                    temp = cat(4, temp, zeros(2,w,dx,dy/4,ch,im,sl,sg));
-                
-                    data(i).srefraw = temp;
+                    temp = complex(real,img);
+
+                    temp(:,w/2+1:end,:,:,:,:,:,:,:)=[];
+                    temp=squeeze(temp);
+
+                    RAW(i).sref=temp;
+                    if ch>1
+                        SMAP=squeeze(adaptive_est_sens(temp));
+                        img=squeeze(temp);
+                        coil_dim=max(size(size(SMAP)));
+                        temp = sum(img.*conj(SMAP),coil_dim)./sum(SMAP.*conj(SMAP),coil_dim);
+
+                        clearvars SMAP
+
+                    end
+
+                    temp=repmat(temp,[1,2,2]);
+                    data(i).srefraw    =   temp;
+
+                    clearvars real img temp
+
                 else
 
-                    data(i).srefraw =  squeeze(reshape(srefraw,[2,w,h,dp,ch,im,sl,sg]));
+                    temp =  reshape(srefraw,[2,w,h,dp,ch,im,sl,sg]);
+                    
+                    real=temp(1,:,:,:,:,:,:,:);
+                    img=temp(2,:,:,:,:,:,:,:);
+                    
+                    temp = complex(real,img);
+
+                    temp(:,w/2+1:end,:,:,:,:,:,:,:)=[];
+                    temp=squeeze(temp);
+                    
+                    RAW(i).sref=temp;
+                    if ch>1
+
+                        SMAP=squeeze(adaptive_est_sens(temp));
+                        img=squeeze(temp);
+                        coil_dim=max(size(size(SMAP)));
+                        temp = (sum(img.*conj(SMAP),coil_dim)./sum(SMAP.*conj(SMAP),coil_dim))';
+
+                        clearvars SMAP
+
+                    end
+
+                    data(i).srefraw = temp';
+
+                    clearvars real img temp
 
                 end
 
@@ -87,9 +167,13 @@ data = struct();
                 return
             end
 
-            % permute mrs (channels combined)
+
+            % channels combined? no documentation avliable...
             if ~isempty(mrs)
-                data(i).mrs    =   squeeze(reshape(mrs,[2,w,h,dp,im,sl,sg]));
+                %mrs            = reshape(mrs,[2,w,h,dp,im,sl,sg]);
+                %mrs            = complex(real,img);
+                %mrs(:,w/2+1:end,:,:,:,:,:,:)=[];  
+                data(i).mrs    = mrs;
             end
 
         else
@@ -99,7 +183,8 @@ data = struct();
 
     end
 
-clearvars -except n data 
+delete(f)
+clearvars -except n data RAW
 
 %% prepare LCmodel header
 
