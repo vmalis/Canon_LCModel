@@ -205,12 +205,66 @@ for i=1:n
         LC.name             = [data(i).xml.filedesc.studyname.Text,'_', data(i).name];
         LC.te               = te;
         LC.hzppm            = hzppm;
-        LC.volume           = data(i).vol;
-        LC.raw              = data(i).sraw;
-        LC.ref              = data(i).srefraw;
-        if data(i).ch > 1
-            LC.channelOption    = 1;
+        LC.volume           = data(i).vol*1000000;
+        
+        
+        %----RAW-data-----------------------------------------------------
+        temp                = data(i).sraw;
+        if size(temp,2)>1
+        % multivoxel
+
+          temp=temp(:);
+
+          if data(i).ch > 1
+          %multichannel
+            temp              = [real(temp),imag(temp)];
+            LC.raw            = temp';
+          else
+            temp              = [real(temp),imag(temp)];
+            LC.raw            = temp';
+          end
+
+        else
+
+          if data(i).ch > 1
+          %multichannel
+            LC.raw              = cat(1,-real(temp'),imag(temp'));
+          else
+            LC.raw              = cat(1,-real(temp'),-imag(temp'));
+          end
+
         end
+
+
+        %----REF-data-----------------------------------------------------
+        temp                = data(i).srefraw;
+        
+        if size(temp,2)>1
+        % multivoxel
+
+          temp=temp(:);
+
+          if data(i).ch > 1
+          %multichannel
+            temp              = [-real(temp),imag(temp)];
+            LC.ref            = temp';
+          else
+            temp              = [-real(temp),-imag(temp)];
+            LC.ref            = temp';
+          end
+
+        else
+
+          if data(i).ch > 1
+          %multichannel
+            LC.ref              = cat(1,-real(temp'),imag(temp'));
+          else
+            LC.ref              = cat(1,-real(temp'),-imag(temp'));
+          end
+
+        end
+
+
             
         % write data
         data2LCmodel(LC,'raw')
